@@ -14,8 +14,14 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use(
-  session({ secret: "mysecret", resave: false, saveUninitialized: true })
+  session({
+    secret: "mysecret",
+    resave: false, // 변경
+    saveUninitialized: false, // 변경
+    cookie: { secure: true, httpOnly: true, sameSite: "lax" }, // 추가
+  })
 );
+
 app.use(passport.initialize());
 app.use(passport.session());
 
