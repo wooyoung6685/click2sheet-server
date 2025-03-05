@@ -5,6 +5,8 @@ const { google } = require("googleapis");
 const passport = require("passport");
 const session = require("express-session");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
+const RedisStore = require("connect-redis")(session);
+const Redis = require("ioredis");
 
 dotenv.config();
 const app = express();
@@ -13,20 +15,22 @@ app.use(cors({ origin: process.env.ORIGIN_URL, credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+const redisClient = new Redis(process.env.REDIS_URL);
+
 app.use(
   session({
-    secret: "mysecret",
+    store: new RedisStore({ client: redisClient }),
+    secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: "production",
+      secure: process.env.NODE_ENV === "production",
       httpOnly: true,
       sameSite: "lax",
-      maxAge: 24 * 60 * 60 * 1000, // 24시간 유효
+      maxAge: 24 * 60 * 60 * 1000,
     },
   })
 );
-
 app.use(passport.initialize());
 app.use(passport.session());
 
