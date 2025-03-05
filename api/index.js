@@ -16,9 +16,14 @@ app.use(express.urlencoded({ extended: true }));
 app.use(
   session({
     secret: "mysecret",
-    resave: false, // 변경
-    saveUninitialized: false, // 변경
-    cookie: { secure: true, httpOnly: true, sameSite: "lax" }, // 추가
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: "production",
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 24 * 60 * 60 * 1000, // 24시간 유효
+    },
   })
 );
 
