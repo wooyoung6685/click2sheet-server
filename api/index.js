@@ -26,7 +26,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: "/auth/google/callback",
+      callbackURL: "https://click2sheet-server.vercel.app/auth/google/callback",
     },
     (accessToken, refreshToken, profile, done) => {
       profile.accessToken = accessToken;
