@@ -48,7 +48,7 @@ app.get(
 app.get(
   "/auth/google/callback",
   passport.authenticate("google", { failureRedirect: "/" }),
-  (req, res) => res.redirect("http://localhost:3000")
+  (req, res) => res.redirect("https://click2sheet-client.vercel.app")
 );
 
 app.get("/auth/user", (req, res) => res.json({ user: req.user || null }));
