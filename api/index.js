@@ -13,82 +13,30 @@ app.use(cors({ origin: process.env.ORIGIN_URL, credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const mongoose = require("mongoose");
-
-mongoose
-  .connect(process.env.MONGO_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
-  .then(() => console.log("MongoDB connected"))
-  .catch((err) => console.error("MongoDB connection error:", err));
-
 app.use(
-  session({
-    secret: "mysecret",
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      secure: true,
-      httpOnly: true,
-      sameSite: "lax",
-      maxAge: 24 * 60 * 60 * 1000, // 24시간 유효
-    },
-  })
+  session({ secret: "mysecret", resave: false, saveUninitialized: true })
 );
-
 app.use(passport.initialize());
 app.use(passport.session());
 
 app.get("/", (req, res) => res.send("Express on Vercel"));
-
-const User = require("../models/User");
 
 passport.use(
   new GoogleStrategy(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: "https://click2sheet-server.vercel.app/auth/google/callback",
+      callbackURL: "/auth/google/callback",
     },
-    async (accessToken, refreshToken, profile, done) => {
-      try {
-        const { id, displayName, emails, photos } = profile;
-
-        // MongoDB에서 사용자 검색
-        let user = await User.findOne({ googleId: id });
-
-        // 새 사용자면 저장 (회원가입 처리)
-        if (!user) {
-          user = new User({
-            googleId: id,
-            email: emails[0].value,
-            name: displayName,
-            picture: photos[0].value,
-          });
-          await user.save();
-        }
-
-        // 사용자 정보에 accessToken 추가
-        user.accessToken = accessToken;
-        return done(null, user);
-      } catch (error) {
-        return done(error, null);
-      }
+    (accessToken, refreshToken, profile, done) => {
+      profile.accessToken = accessToken;
+      return done(null, profile);
     }
   )
 );
 
-passport.serializeUser((user, done) => done(null, user.googleId));
-
-passport.deserializeUser(async (googleId, done) => {
-  try {
-    const user = await User.findOne({ googleId });
-    done(null, user);
-  } catch (error) {
-    done(error, null);
-  }
-});
+passport.serializeUser((user, done) => done(null, user));
+passport.deserializeUser((obj, done) => done(null, obj));
 
 app.get(
   "/auth/google",
@@ -97,56 +45,16 @@ app.get(
   })
 );
 
-const jwt = require("jsonwebtoken");
-const cookieParser = require("cookie-parser");
-
-app.use(cookieParser());
-
 app.get(
   "/auth/google/callback",
   passport.authenticate("google", { failureRedirect: "/" }),
-  async (req, res) => {
-    if (!req.user) {
-      return res.status(401).json({ error: "Authentication failed" });
-    }
-
-    // JWT 발급
-    const token = jwt.sign(
-      { id: req.user._id, email: req.user.email },
-      process.env.JWT_SECRET,
-      { expiresIn: "24h" }
-    );
-
-    // 쿠키에 JWT 저장
-    res.cookie("token", token, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "lax",
-      maxAge: 24 * 60 * 60 * 1000,
-    });
-
-    res.redirect("https://click2sheet-client.vercel.app");
-  }
+  (req, res) => res.redirect("https://click2sheet-client.vercel.app")
 );
 
-app.get("/auth/user", async (req, res) => {
-  const token = req.cookies.token;
-  if (!token) return res.status(401).json({ error: "Unauthorized" });
-
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id).select("-googleId");
-
-    if (!user) return res.status(404).json({ error: "User not found" });
-
-    res.json({ user });
-  } catch (error) {
-    res.status(401).json({ error: "Invalid token" });
-  }
-});
+app.get("/auth/user", (req, res) => res.json({ user: req.user || null }));
 
 app.get("/auth/logout", (req, res) => {
-  res.clearCookie("token");
+  req.logout(() => req.session.destroy());
   res.json({ message: "Logged out successfully" });
 });
 
