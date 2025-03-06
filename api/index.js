@@ -5,6 +5,7 @@ const { google } = require("googleapis");
 const passport = require("passport");
 const session = require("express-session");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
+const MongoStore = require("connect-mongo");
 
 dotenv.config();
 const app = express();
@@ -16,10 +17,7 @@ app.use(express.urlencoded({ extended: true }));
 const mongoose = require("mongoose");
 
 mongoose
-  .connect(process.env.MONGO_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
+  .connect(process.env.MONGO_URI, {})
   .then(() => console.log("MongoDB connected"))
   .catch((err) => console.error("MongoDB connection error:", err));
 
@@ -28,8 +26,12 @@ app.use(
     secret: "mysecret",
     resave: false,
     saveUninitialized: false,
+    store: MongoStore.create({
+      mongoUrl: process.env.MONGO_URI, // MongoDB URI
+      collectionName: "sessions", // 세션이 저장될 컬렉션 이름
+    }),
     cookie: {
-      secure: true,
+      secure: process.env.NODE_ENV === "production", // 프로덕션 환경에서만 secure 쿠키 사용
       httpOnly: true,
       sameSite: "lax",
       maxAge: 24 * 60 * 60 * 1000, // 24시간 유효
@@ -42,8 +44,7 @@ app.use(passport.session());
 
 app.get("/", (req, res) => res.send("Express on Vercel"));
 
-const User = require("./models/User");
-
+const User = require("../models/User");
 passport.use(
   new GoogleStrategy(
     {
