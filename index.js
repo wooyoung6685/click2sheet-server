@@ -1,25 +1,50 @@
+require("dotenv").config();
 const express = require("express");
-const cors = require("cors");
-const dotenv = require("dotenv");
-const { google } = require("googleapis");
+const mongoose = require("mongoose");
 const passport = require("passport");
-const session = require("express-session");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
+const session = require("express-session");
+const MongoStore = require("connect-mongo"); // 추가된 부분
+const cors = require("cors");
+const { google } = require("googleapis");
 
-dotenv.config();
 const app = express();
 
-app.use(cors({ origin: process.env.ORIGIN_URL, credentials: true }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// MongoDB 연결
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+});
 
+// CORS 설정
 app.use(
-  session({ secret: "mysecret", resave: false, saveUninitialized: true })
+  cors({
+    origin: process.env.ORIGIN_URI,
+    credentials: true,
+  })
 );
+
+// 세션 설정 (수정된 부분)
+app.use(
+  session({
+    secret: "-secret-",
+    resave: false,
+    saveUninitialized: false,
+    store: MongoStore.create({ mongoUrl: process.env.MONGO_URI }), // MongoDB에 세션 저장
+    cookie: {
+      secure: false,
+      httpOnly: true,
+      maxAge: 1000 * 60 * 60 * 24,
+    },
+  })
+);
+
+// Passport 초기화
 app.use(passport.initialize());
 app.use(passport.session());
 
-app.get("/", (req, res) => res.send("Express on Vercel"));
+// Passport 전략 설정
+const User = require("./models/User");
 
 passport.use(
   new GoogleStrategy(
@@ -28,34 +53,92 @@ passport.use(
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
       callbackURL: "/auth/google/callback",
     },
-    (accessToken, refreshToken, profile, done) => {
-      profile.accessToken = accessToken;
-      return done(null, profile);
+    async (accessToken, refreshToken, profile, done) => {
+      try {
+        let user = await User.findOne({ googleId: profile.id });
+
+        if (!user) {
+          user = new User({
+            googleId: profile.id,
+            displayName: profile.displayName,
+            accessToken,
+            refreshToken,
+          });
+          await user.save();
+        } else {
+          user.accessToken = accessToken;
+          await user.save();
+        }
+
+        return done(null, user);
+      } catch (err) {
+        return done(err);
+      }
     }
   )
 );
 
-passport.serializeUser((user, done) => done(null, user));
-passport.deserializeUser((obj, done) => done(null, obj));
+// 세션 직렬화
+passport.serializeUser((user, done) => {
+  done(null, user.id);
+});
 
+passport.deserializeUser(async (id, done) => {
+  try {
+    const user = await User.findById(id);
+    done(null, user);
+  } catch (err) {
+    done(err);
+  }
+});
+
+// 라우트 설정
 app.get(
   "/auth/google",
   passport.authenticate("google", {
-    scope: ["profile", "email", "https://www.googleapis.com/auth/spreadsheets"],
+    scope: ["profile", "https://www.googleapis.com/auth/spreadsheets"],
   })
 );
 
 app.get(
   "/auth/google/callback",
-  passport.authenticate("google", { failureRedirect: "/" }),
-  (req, res) => res.redirect("https://click2sheet-client.vercel.app")
+  passport.authenticate("google", { failureRedirect: "/login" }),
+  (req, res) => {
+    res.redirect(process.env.ORIGIN_URI);
+  }
 );
 
-app.get("/auth/user", (req, res) => res.json({ user: req.user || null }));
+app.post("/auth/logout", async (req, res) => {
+  try {
+    // req.logout()에 콜백 함수 전달
+    req.logout((err) => {
+      if (err) {
+        console.error("로그아웃 처리 중 오류:", err);
+        return res.status(500).send("로그아웃 실패");
+      }
 
-app.get("/auth/logout", (req, res) => {
-  req.logout(() => req.session.destroy());
-  res.json({ message: "Logged out successfully" });
+      // 세션을 종료하고 쿠키 삭제
+      req.session.destroy((err) => {
+        if (err) {
+          console.error("세션 삭제 중 오류:", err);
+          return res.status(500).send("세션 삭제 중 오류");
+        }
+        res.clearCookie("connect.sid"); // 세션 쿠키 삭제
+        res.status(200).send("로그아웃 완료");
+      });
+    });
+  } catch (error) {
+    console.error("로그아웃 처리 중 오류:", error);
+    res.status(500).send("서버 오류");
+  }
+});
+
+app.get("/auth/user", (req, res) => {
+  if (req.user) {
+    res.json(req.user);
+  } else {
+    res.status(401).json({ error: "Not authenticated" });
+  }
 });
 
 const TEMPLATE_SHEET_ID = process.env.TEMPLATE_SHEET_ID; // 템플릿 시트 ID
